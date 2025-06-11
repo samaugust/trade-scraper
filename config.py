@@ -2,10 +2,11 @@ FOLLOWED_TRADERS = {
     "Minato"
     "TraderTim",
     "$Silla",
-    "Perdu"
+    "Perdu",
+    "Kayne"
 }
 
-POLL_INTERVAL_SECONDS = 7
+POLL_INTERVAL_SECONDS = 10
 
 SESSION = "storage/session.json"
 STATE = "storage/state.json"

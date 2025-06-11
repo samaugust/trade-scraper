@@ -9,6 +9,8 @@ from config import POLL_INTERVAL_SECONDS
 
 # Graceful shutdown flag
 stop_signal = False
+events_counter = { "actionable_updates": 0, "actionable_new_trades": 0, "non-actionable_new_trades": 0, "non-actionable_updates": 0 }
+polling_loop_counter = 1
 
 def handle_shutdown(signum, frame):
     global stop_signal
@@ -17,6 +19,7 @@ def handle_shutdown(signum, frame):
 
 async def main():
   global stop_signal
+  global polling_loop_counter
 
   # Setup signal handlers
   signal.signal(signal.SIGINT, handle_shutdown)
@@ -30,9 +33,13 @@ async def main():
   try:
     while not stop_signal:
 
-      await scrape_and_parse_active_trades(state, context)
+      print(f"[INFO] POLLING LOOP COUNT: {polling_loop_counter}")
 
-      await check_trade_updates(state, context)
+      await scrape_and_parse_active_trades(state, context, events_counter)
+
+      await check_trade_updates(state, context, events_counter)
+
+      polling_loop_counter += 1
 
       await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

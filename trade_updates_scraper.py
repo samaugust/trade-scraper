@@ -1,13 +1,15 @@
 from bs4 import BeautifulSoup
 from state import save_state
-from trade_parser import reconcile_trade_from_url
+from trade_parser import update_active_trades_from_urls
+from utils import play_notification, record_event
 
 # Extract only new trade update links from messages after the last seen message ID
-def extract_new_trade_update_links(html: str, last_seen_id: str) -> list[tuple[str, str]]:
+def extract_new_trade_updates(html: str, last_seen_id: str) -> list[tuple[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     all_messages = soup.find_all("li")
 
     new_trade_urls = []
+    msg_ids = []
     found_anchor = False
 
     for li in all_messages:
@@ -22,13 +24,14 @@ def extract_new_trade_update_links(html: str, last_seen_id: str) -> list[tuple[s
         link = li.find("a", href=True)
         if link:
             href = link["href"]
-            new_trade_urls.append((msg_id, href))
+            new_trade_urls.append((href))
+            msg_ids.append(msg_id)
 
-    return new_trade_urls
+    return new_trade_urls, msg_ids
 
 # Main coroutine to check for updates
-async def check_trade_updates(state, context):
-    print("[CHECKPOINT] check_trade_updates() entered")
+async def check_trade_updates(state, context, events_counter):
+    print("[CHECKPOINT] trade_updates_scraper.py entered")
 
     last_seen_id = state.get("last_trade_updates_message_id")
 
@@ -58,19 +61,26 @@ async def check_trade_updates(state, context):
             print("[INFO] No messages found in #trade-updates")
         return
 
-    new_updates = extract_new_trade_update_links(html, last_seen_id)
-
-    if not new_updates:
+    trade_urls, msg_ids = extract_new_trade_updates(html, last_seen_id)
+   
+    if not trade_urls:
         print("[INFO] No new trade updates to process.")
         return
 
-    for msg_id, trade_url in new_updates:
+    actionable_updates_count = 0
+    for trade_url in trade_urls:
         if trade_url in state.get("active_trades", {}):
-            await reconcile_trade_from_url(trade_url, html, state)
+            actionable_updates_count += 1
+            await update_active_trades_from_urls(trade_url, state, context, "UPDATER")
         else:
+            record_event(events_counter, "non-actionable_updates")
             print(f"[INFO] Ignoring update for trade not in active_trades: {trade_url}")
 
     # Update last seen ID to the latest processed one
-    state["last_trade_updates_message_id"] = new_updates[-1][0]
+    new_last_msg_id = msg_ids[-1]
+    state["last_trade_updates_message_id"] = new_last_msg_id
     save_state(state)
-    print(f"[INFO] Updated last_trade_updates_message_id to {new_updates[-1][0]}")
+    record_event(events_counter, "actionable_updates", actionable_updates_count)
+    print(f"[ALERT] {actionable_updates_count} actionable update(s) processed. Updated last_trade_updates_message_id to {new_last_msg_id}")
+    play_notification("Glass")
+

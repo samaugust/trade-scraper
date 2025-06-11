@@ -1,7 +1,8 @@
 from bs4 import BeautifulSoup
 from config import FOLLOWED_TRADERS
 from state import save_state
-from trade_parser import hydrate_active_trades_from_urls
+from trade_parser import update_active_trades_from_urls
+from utils import play_notification, record_event
 import hashlib
 
 EMOJI_MAP = {
@@ -10,16 +11,24 @@ EMOJI_MAP = {
     "🔵": "spot",
 }
 
-def compute_hash_from_html(html: str) -> str:
-    return hashlib.sha256(html.encode("utf-8")).hexdigest()
+def compute_hash_from_text_blocks(blocks) -> str:
+    joined = "\n\n".join(blocks).strip().lower()  # Normalize
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
-async def scrape_and_parse_active_trades(state: dict, context) -> list[dict]:
+async def scrape_and_parse_active_trades(state: dict, context, events_counter) -> list[dict]:
+    print("[CHECKPOINT] active_trades_scraper.py entered")
     active_trades_page = context.pages[0]
     container = await active_trades_page.query_selector("ol[aria-label^='Messages']")
     html = await container.inner_html()
+    soup = BeautifulSoup(html, "html.parser")
+    trade_blocks = soup.find_all("li", class_="messageListItem__5126c")
 
-    new_hash = compute_hash_from_html(html)
+    block_texts = [block.get_text(separator=" ", strip=True) for block in trade_blocks]
+
+    new_hash = compute_hash_from_text_blocks(block_texts)
     last_hash = state.get("last_active_trades_hash")
+    print(f"OLD HASH: {last_hash}")
+    print(f"NEW HASH: {new_hash}")
 
     if new_hash == last_hash:
         print("[INFO] No change detected in #active-trades.")
@@ -28,11 +37,7 @@ async def scrape_and_parse_active_trades(state: dict, context) -> list[dict]:
     state["last_active_trades_hash"] = new_hash
     save_state(state)
 
-    soup = BeautifulSoup(html, "html.parser")
     trade_urls = []
-
-    trade_blocks = soup.find_all("li", class_="messageListItem__5126c")
-
     for block in trade_blocks:
         content_div = block.find("div", class_="messageContent_c19a55")
         if not content_div:
@@ -75,5 +80,14 @@ async def scrape_and_parse_active_trades(state: dict, context) -> list[dict]:
                 continue  # filtered out
 
             trade_urls.append(trade_url)
-    if len(trade_urls) > 0:
-        await hydrate_active_trades_from_urls(trade_urls, state, context)
+    
+    new_trades_count = len(trade_urls)
+    if new_trades_count > 0:
+        await update_active_trades_from_urls(trade_urls, state, context, "HYDRATOR")
+        record_event(events_counter, "actionable_new_trades", new_trades_count)
+        print(f"[ALERT] {new_trades_count} new trades added")
+    else:
+        record_event(events_counter, "non-actionable_new_trades")
+        print("[INFO] Changes detected in #active-trades, but no actionable trades found")
+
+    play_notification("Submarine")
