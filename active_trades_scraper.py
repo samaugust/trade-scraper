@@ -27,8 +27,8 @@ async def scrape_and_parse_active_trades(state: dict, context, events_counter) -
 
     new_hash = compute_hash_from_text_blocks(block_texts)
     last_hash = state.get("last_active_trades_hash")
-    print(f"OLD HASH: {last_hash}")
-    print(f"NEW HASH: {new_hash}")
+    # print(f"OLD HASH: {last_hash}")
+    # print(f"NEW HASH: {new_hash}")
 
     if new_hash == last_hash:
         print("[INFO] No change detected in #active-trades.")

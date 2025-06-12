@@ -2,16 +2,18 @@ from bs4 import BeautifulSoup
 from state import save_state
 from trade_parser import update_active_trades_from_urls
 from utils import play_notification, record_event
+import pprint
 
 # Extract only new trade update links from messages after the last seen message ID
-def extract_new_trade_updates(html: str, last_seen_id: str) -> list[tuple[str, str]]:
+def extract_new_trade_updates(html: str, last_seen_id: str):
     soup = BeautifulSoup(html, "html.parser")
-    all_messages = soup.find_all("li")
+    all_messages = soup.find_all("li", class_="messageListItem__5126c")
 
     new_trade_urls = []
     msg_ids = []
     found_anchor = False
 
+    print(f"[DEBUG] {len(all_messages)} update messages:")
     for li in all_messages:
         msg_id = li.get("id", "").split("-")[-1]
 
@@ -21,10 +23,12 @@ def extract_new_trade_updates(html: str, last_seen_id: str) -> list[tuple[str, s
             continue  # skip until anchor found
 
         # Only process messages after the anchor
-        link = li.find("a", href=True)
+        link = li.select_one("a[href*='discord.com/channels']")
+        print(f"[INFO] Link found in new updates: {link}")
         if link:
             href = link["href"]
-            new_trade_urls.append((href))
+            print(f"{href}")
+            new_trade_urls.append(href)
             msg_ids.append(msg_id)
 
     return new_trade_urls, msg_ids
@@ -67,14 +71,17 @@ async def check_trade_updates(state, context, events_counter):
         print("[INFO] No new trade updates to process.")
         return
 
+    actionable_updates = []
     actionable_updates_count = 0
     for trade_url in trade_urls:
         if trade_url in state.get("active_trades", {}):
+            actionable_updates.append(trade_url)
             actionable_updates_count += 1
-            await update_active_trades_from_urls(trade_url, state, context, "UPDATER")
         else:
             record_event(events_counter, "non-actionable_updates")
             print(f"[INFO] Ignoring update for trade not in active_trades: {trade_url}")
+
+    await update_active_trades_from_urls(actionable_updates, state, context, "UPDATER")
 
     # Update last seen ID to the latest processed one
     new_last_msg_id = msg_ids[-1]
