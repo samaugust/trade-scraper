@@ -6,6 +6,4 @@ __pycache__/
 # Ignore all storage files and directory entirely
 /storage/
 
-# Ignore private alternate scraper versions
-trade_parser2.py
-trade_updates_scraper2.py
+.env

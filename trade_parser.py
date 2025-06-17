@@ -1,6 +1,7 @@
 import re
 from bs4 import BeautifulSoup
 from state import save_state
+from bybit_handler import handle_trade_update
 
 def extract_trade_fields_from_text(text: str) -> dict:
     trader_match = re.search(r"(.*?)APP", text)
@@ -58,6 +59,7 @@ async def update_active_trades_from_urls(urls: list[str], state, context, crud_t
             trade_data = parse_trade_html(html)
 
             if trade_data:
+                await handle_trade_update(trade_data, crud_type, url, state)
                 active_trades[url] = trade_data
                 print(f"[{crud_type}] Trade processed: {url}")
             else:

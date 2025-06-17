@@ -81,7 +81,7 @@ async def check_trade_updates(state, context, events_counter):
             record_event(events_counter, "non-actionable_updates")
             print(f"[INFO] Ignoring update for trade not in active_trades: {trade_url}")
 
-    await update_active_trades_from_urls(actionable_updates, state, context, "UPDATER")
+    await update_active_trades_from_urls(actionable_updates, state, context, "UPDATE")
 
     # Update last seen ID to the latest processed one
     new_last_msg_id = msg_ids[-1]

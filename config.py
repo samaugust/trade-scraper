@@ -1,9 +1,6 @@
 FOLLOWED_TRADERS = {
-    "Minato"
-    "TraderTim",
     "$Silla",
-    "Perdu",
-    "Kayne"
+    "Perdu"
 }
 
 POLL_INTERVAL_SECONDS = 20
@@ -14,3 +11,7 @@ STATE = "storage/state.json"
 ACTIVE_TRADES_CHANNEL = "https://discord.com/channels/953383649930248232/1185250680391335976"
 
 UPDATES_CHANNEL = "https://discord.com/channels/953383649930248232/1172705132853600337"
+
+RISK_PER_TRADE = 1
+LEVERAGE = 10
+MARGIN_MODE = "CROSS"
