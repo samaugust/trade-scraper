@@ -83,7 +83,7 @@ async def scrape_and_parse_active_trades(state: dict, context, events_counter) -
     
     new_trades_count = len(trade_urls)
     if new_trades_count > 0:
-        await update_active_trades_from_urls(trade_urls, state, context, "CREATE")
+        await update_active_trades_from_urls(trade_urls, state, context, "CREATE", events_counter)
         record_event(events_counter, "actionable_new_trades", new_trades_count)
         print(f"[ALERT] {new_trades_count} new trades added")
     else:

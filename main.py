@@ -9,7 +9,14 @@ from config import POLL_INTERVAL_SECONDS
 
 # Graceful shutdown flag
 stop_signal = False
-events_counter = { "actionable_updates": 0, "actionable_new_trades": 0, "non-actionable_new_trades": 0, "non-actionable_updates": 0 }
+events_counter = { 
+    "actionable_updates": 0, 
+    "actionable_new_trades": 0, 
+    "non-actionable_new_trades": 0, 
+    "non-actionable_updates": 0,
+    "hyperliquid_new_trades": 0,
+    "hyperliquid_updates": 0
+}
 polling_loop_counter = 1
 
 def handle_shutdown(signum, frame):

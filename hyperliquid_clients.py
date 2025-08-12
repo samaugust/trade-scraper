@@ -4,6 +4,20 @@ from hyperliquid import HyperliquidAsync
 
 load_dotenv()
 
+# Environment Variables Required (in .env file):
+# 
+# For each subaccount (1, 2, 3), you need:
+# HYPERLIQUID_ACCOUNT_ADDRESS_[1-3] - Master wallet address (same for all)
+# HYPERLIQUID_API_WALLET_[1-3]      - Unique API wallet address for this subaccount
+# HYPERLIQUID_PRIVATE_KEY_[1-3]     - Private key for the API wallet
+# HYPERLIQUID_SUBACCOUNT_[1-3]      - Subaccount address (optional, uses master if not set)
+#
+# Example:
+# HYPERLIQUID_ACCOUNT_ADDRESS_1=0xYourMasterWalletAddress
+# HYPERLIQUID_API_WALLET_1=0xAPIWalletAddressForSubaccount1
+# HYPERLIQUID_PRIVATE_KEY_1=0xPrivateKeyForAPIWallet1
+# HYPERLIQUID_SUBACCOUNT_1=0xSubaccount1Address
+
 def create_client(subaccount_num):
     """Create a Hyperliquid client for a specific subaccount."""
     master_address = os.getenv(f"HYPERLIQUID_ACCOUNT_ADDRESS_{subaccount_num}")

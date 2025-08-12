@@ -5,22 +5,14 @@ from hyperliquid_executor import (
     set_stop_loss_take_profit
 )
 from hyperliquid_clients import TRADER_TO_CLIENT
-from config import RISK_PER_TRADE
+from config import RISK_PER_TRADE, HYPERLIQUID_SYMBOL_OVERRIDES
 from utils import play_notification, record_event
 import pprint
 
 pp = pprint.PrettyPrinter(indent=2)
 
-# Configurable symbol mapping for edge cases
-# Add any symbols that need special handling here
-SYMBOL_MAPPING = {
-    # Example edge cases (uncomment and modify as needed):
-    # "DOGE/USDT": "DOGE/USD",  # Standard mapping
-    # "1000PEPE/USDT": "PEPE/USD",  # Remove 1000x multiplier
-    # "1000SHIB/USDT": "SHIB/USD",  # Remove 1000x multiplier
-    # "BTCUSDT": "BTC/USD",  # Handle non-slash format
-    # Add more mappings as discovered during production testing
-}
+# Use symbol mapping from config
+SYMBOL_MAPPING = HYPERLIQUID_SYMBOL_OVERRIDES
 
 def convert_symbol(symbol: str) -> str:
     """
@@ -118,8 +110,8 @@ async def handle_trade_update(trade_data, crud_type, trade_url, state, events_co
             
             # Record event and play notification
             if events_counter is not None:
-                record_event(events_counter, "actionable_new_trades")
-            play_notification("Glass")
+                record_event(events_counter, "hyperliquid_new_trades")
+            play_notification("Hero")  # Distinct sound for Hyperliquid new trades
             
         except Exception as e:
             print(f"[ERROR] Failed to create trade for {symbol}: {e}")
@@ -176,8 +168,8 @@ async def handle_trade_update(trade_data, crud_type, trade_url, state, events_co
             
             # Record event and play notification for updates
             if events_counter is not None:
-                record_event(events_counter, "actionable_updates")
-            play_notification("Ping")
+                record_event(events_counter, "hyperliquid_updates")
+            play_notification("Pop")  # Distinct sound for Hyperliquid updates
             
         except Exception as e:
             print(f"[ERROR] Failed to update trade for {symbol}: {e}")
