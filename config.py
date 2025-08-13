@@ -13,7 +13,7 @@ ACTIVE_TRADES_CHANNEL = "https://discord.com/channels/953383649930248232/1185250
 
 UPDATES_CHANNEL = "https://discord.com/channels/953383649930248232/1172705132853600337"
 
-RISK_PER_TRADE = 1
+RISK_PER_TRADE = 1  # $1 risk per trade (for testing)
 LEVERAGE = 10
 MARGIN_MODE = "CROSS"
 

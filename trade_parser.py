@@ -29,12 +29,12 @@ def extract_trade_fields_from_text(text: str) -> dict:
     return {
         "trader": trader,
         "symbol": symbol,
-        "direction": direction,
+        "side": direction,  # Changed from "direction" to "side" for compatibility
         "entries": entries,
         "avg_entry": avg_entry,
-        "stop loss": stop,
-        "take profit": tp,
-        "closed price": closed,
+        "stop_loss": stop,  # Changed from "stop loss" to "stop_loss"
+        "take_profit": tp,  # Changed from "take profit" to "take_profit"
+        "closed_price": closed,  # Changed from "closed price" to "closed_price"
         "multi_entry": multi_entry
     }
 
