@@ -11,6 +11,7 @@ from hyperliquid_executor import (
     cancel_orders,
     set_stop_loss_take_profit,
     close_position,
+    get_position_info,
     convert_symbol
 )
 from utils import play_notification
@@ -163,10 +164,14 @@ async def handle_create_trade(
         print(f"[ERROR] Failed to place entry orders for {symbol}")
         return False
     
-    # Set stop loss and take profit
-    if stop_loss or take_profit:
+    # Calculate total position size from placed orders
+    total_position_size = sum(order.get('amount', 0) for order in orders if order)
+    print(f"[INFO] Total position size: {total_position_size}")
+    
+    # Set stop loss and take profit with the actual position size
+    if (stop_loss or take_profit) and total_position_size > 0:
         sl_order, tp_order = await set_stop_loss_take_profit(
-            client, symbol, side, stop_loss, take_profit
+            client, symbol, side, stop_loss, take_profit, total_position_size
         )
         
         if not sl_order and stop_loss:
@@ -211,18 +216,29 @@ async def handle_update_trade(
     print(f"[UPDATE] Canceled {canceled} existing orders for {symbol}")
     
     # Place new entry orders if provided
+    total_position_size = 0
     if entries and side and stop_loss:
         orders = await place_orders(
             client, symbol, side, entries, stop_loss, risk_per_trade
         )
         
-        if not orders:
+        if orders:
+            total_position_size = sum(order.get('amount', 0) for order in orders if order)
+            print(f"[INFO] Total position size: {total_position_size}")
+        else:
             print(f"[WARNING] Failed to place updated entry orders for {symbol}")
     
-    # Update stop loss and take profit
-    if (stop_loss or take_profit) and side:
+    # If no new orders placed, try to get existing position size
+    if total_position_size == 0:
+        position_info = await get_position_info(client, symbol, subaccount_address)
+        if position_info and position_info.get('szi'):
+            total_position_size = abs(float(position_info['szi']))
+            print(f"[INFO] Using existing position size: {total_position_size}")
+    
+    # Update stop loss and take profit with actual position size
+    if (stop_loss or take_profit) and side and total_position_size > 0:
         sl_order, tp_order = await set_stop_loss_take_profit(
-            client, symbol, side, stop_loss, take_profit
+            client, symbol, side, stop_loss, take_profit, total_position_size
         )
         
         if not sl_order and stop_loss:

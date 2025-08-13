@@ -293,6 +293,8 @@ async def set_stop_loss_take_profit(
     # Place stop loss
     if stop_loss:
         print(f"[INFO] Setting stop loss at {stop_loss} for {hl_symbol}")
+        print(f"[DEBUG] SL params: side={sl_side}, amount={position_size}, price={stop_loss}")
+        print(f"[DEBUG] SL trigger type: {'tp' if side == 'short' else 'sl'}")
         try:
             sl_order = await with_retry(
                 lambda: client.create_order(
@@ -308,13 +310,15 @@ async def set_stop_loss_take_profit(
                     }
                 )
             )
-            print(f"[INFO] Stop loss order placed successfully")
+            print(f"[INFO] Stop loss order placed successfully: {sl_order.get('id', 'no ID')}")
         except Exception as e:
             print(f"[ERROR] Failed to set stop loss: {e}")
     
     # Place take profit
     if take_profit:
         print(f"[INFO] Setting take profit at {take_profit} for {hl_symbol}")
+        print(f"[DEBUG] TP params: side={sl_side}, amount={position_size}, price={take_profit}")
+        print(f"[DEBUG] TP trigger type: {'sl' if side == 'short' else 'tp'}")
         try:
             tp_order = await with_retry(
                 lambda: client.create_order(
@@ -330,7 +334,7 @@ async def set_stop_loss_take_profit(
                     }
                 )
             )
-            print(f"[INFO] Take profit order placed successfully")
+            print(f"[INFO] Take profit order placed successfully: {tp_order.get('id', 'no ID')}")
         except Exception as e:
             print(f"[ERROR] Failed to set take profit: {e}")
     
@@ -370,13 +374,16 @@ async def close_position(client, symbol: str, subaccount_address: str) -> bool:
             ticker = await client.fetch_ticker(hl_symbol)
             current_price = ticker['last']
             
-            # Calculate slippage price (5% default)
+            # Calculate slippage price (20% tolerance to ensure fill)
+            # IMPORTANT: This is NOT a limit price - the order executes at market price
+            # This parameter only prevents execution if price is worse than this threshold
+            # Set high tolerance (20%) to ensure position closes even in volatile conditions
             if side == 'buy':
-                # Buying to close short - use higher price for slippage
-                slippage_price = current_price * 1.05
+                # Buying to close short - allow up to 20% above market
+                slippage_price = current_price * 1.20
             else:
-                # Selling to close long - use lower price for slippage
-                slippage_price = current_price * 0.95
+                # Selling to close long - allow down to 20% below market
+                slippage_price = current_price * 0.80
             
             await with_retry(
                 lambda: client.create_market_order(
