@@ -3,17 +3,12 @@ from config import FOLLOWED_TRADERS
 from state import save_state
 from trade_parser import update_active_trades_from_urls
 from utils import play_notification, record_event
-import hashlib
 
 EMOJI_MAP = {
     "🟢": "futures_long",
     "🔴": "futures_short",
     "🔵": "spot",
 }
-
-def compute_hash_from_text_blocks(blocks) -> str:
-    joined = "\n\n".join(blocks).strip().lower()  # Normalize
-    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 async def scrape_and_parse_active_trades(state: dict, context, events_counter) -> list[dict]:
     print("[CHECKPOINT] active_trades_scraper.py entered")
@@ -23,19 +18,35 @@ async def scrape_and_parse_active_trades(state: dict, context, events_counter) -
     soup = BeautifulSoup(html, "html.parser")
     trade_blocks = soup.find_all("li", class_="messageListItem__5126c")
 
-    block_texts = [block.get_text(separator=" ", strip=True) for block in trade_blocks]
-
-    new_hash = compute_hash_from_text_blocks(block_texts)
-    last_hash = state.get("last_active_trades_hash")
-    # print(f"OLD HASH: {last_hash}")
-    # print(f"NEW HASH: {new_hash}")
-
-    if new_hash == last_hash:
-        print("[INFO] No change detected in #active-trades.")
+    # Collect all current trade URLs from the channel
+    current_trade_urls = set()
+    for block in trade_blocks:
+        content_div = block.find("div", class_="messageContent_c19a55")
+        if not content_div:
+            continue
+            
+        # Get all trade URLs
+        links = content_div.find_all("a", href=True)
+        for link_tag in links:
+            trade_url = link_tag["href"]
+            current_trade_urls.add(trade_url)
+    
+    # Get previously seen URLs (ALL URLs, not just processed ones)
+    previous_seen_urls = set(state.get("all_seen_urls", []))
+    
+    # Find new trade URLs (ones we haven't seen before in any capacity)
+    new_trade_urls = current_trade_urls - previous_seen_urls
+    
+    # Update the list of all seen URLs (this handles removals too)
+    state["all_seen_urls"] = list(current_trade_urls)
+    save_state(state)
+    
+    # Check if there are any new trades
+    if not new_trade_urls:
+        print("[INFO] No new trades detected in #active-trades.")
         return
 
-    state["last_active_trades_hash"] = new_hash
-    save_state(state)
+    print(f"[INFO] Found {len(new_trade_urls)} new trade URL(s) to evaluate")
 
     trade_urls = []
     for block in trade_blocks:
@@ -58,8 +69,14 @@ async def scrape_and_parse_active_trades(state: dict, context, events_counter) -
         for link_tag in links:
             trade_url = link_tag["href"]
 
-            if trade_url in state["active_trades"]:
-                continue  # already tracked
+            # Only process new URLs
+            if trade_url not in new_trade_urls:
+                continue  # Skip URLs we've already seen
+            
+            # Safety check: Skip if already in active_trades (prevents duplicates)
+            if trade_url in state.get("active_trades", {}):
+                print(f"[WARNING] URL marked as new but already in active_trades, skipping duplicate: {trade_url}")
+                continue
 
             # Look for emoji containers near this link
             parent = link_tag.find_parent("li")

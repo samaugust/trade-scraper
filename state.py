@@ -6,9 +6,9 @@ from config import STATE
 
 def default_state():
     return {
-        "last_active_trades_hash": None,
-        "last_trade_updates_message_id": None,
-        "active_trades": {}  # {url: {symbol, trader, bybit_id?, ...}}
+        "last_trade_updates_message_id": None,  # Last message ID from #trade-updates channel
+        "active_trades": {},  # {url: {symbol, trader, ...}} - tracks all PROCESSED trades by URL
+        "all_seen_urls": []  # All URLs currently visible in #active-trades (updated each poll)
     }
 
 def load_state():

@@ -7,7 +7,8 @@ def extract_trade_fields_from_text(text: str) -> dict:
     trader_match = re.search(r"(.*?)APP", text)
     symbol_match = re.search(r"([A-Z]{2,10}/USDT)", text, re.IGNORECASE)
     stop_match = re.search(r"(stop|sl)[/ ]?(loss)?[:\s]+[$]?\s*([\d.]+)", text, re.IGNORECASE)
-    tp_match = re.search(r"(take profit|tp)[:\s]+[$]?\s*([\d.]+)", text, re.IGNORECASE)
+    # Find ALL take profit values (handles "Take Profit 1: 120100", "Take Profit 2: 120500", etc.)
+    tp_matches = re.findall(r"(?:take profit|tp)\s*(?:\d+)?[:\s]+[$]?\s*([\d.]+)", text, re.IGNORECASE)
     close_match = re.search(r"closed\s*(price)?[:\s]+[$]?\s*([\d.]+)", text)
     entry_matches = re.findall(r"entry\s*\d*[:\s]+\$?([\d.]+)", text, re.IGNORECASE)
 
@@ -15,7 +16,18 @@ def extract_trade_fields_from_text(text: str) -> dict:
     direction = "long" if "long" in text.lower() else "short" if "short" in text.lower() else None
     symbol = symbol_match.group(1).upper() if symbol_match else None
     stop = float(stop_match.group(3)) if stop_match else None
-    tp = float(tp_match.group(2)) if tp_match else None
+    
+    # Parse all TP values into a list
+    if tp_matches:
+        tp_list = [float(tp) for tp in tp_matches]
+        print(f"[DEBUG] Found {len(tp_list)} TP values: {tp_list}")
+        # For backward compatibility, also store the first TP as 'take_profit'
+        tp = tp_list[0] if tp_list else None
+    else:
+        print(f"[DEBUG] No TP values found in text")
+        tp_list = []
+        tp = None
+    
     closed = float(close_match.group(2)) if close_match else None
     entries = list(map(float, entry_matches)) if entry_matches else []
     avg_entry = sum(entries) / len(entries) if entries else None
@@ -33,7 +45,8 @@ def extract_trade_fields_from_text(text: str) -> dict:
         "entries": entries,
         "avg_entry": avg_entry,
         "stop_loss": stop,  # Changed from "stop loss" to "stop_loss"
-        "take_profit": tp,  # Changed from "take profit" to "take_profit"
+        "take_profit": tp,  # First TP for backward compatibility
+        "take_profit_list": tp_list,  # NEW: List of all TP values
         "closed_price": closed,  # Changed from "closed price" to "closed_price"
         "multi_entry": multi_entry
     }
@@ -69,6 +82,7 @@ async def update_active_trades_from_urls(urls: list[str], state, context, crud_t
         finally:
             await page.close()
 
+    # Only update the active_trades field, preserving other state fields
     state["active_trades"] = active_trades
     save_state(state)
     print(f"[{crud_type}] All trades processed. State saved.")

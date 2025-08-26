@@ -6,4 +6,15 @@ __pycache__/
 # Ignore all storage files and directory entirely
 /storage/
 
+/tasks/
+
+/venv/
+
+/.claude
+
+/CLAUDE.md
+
 .env
+
+# macOS system files
+.DS_Store

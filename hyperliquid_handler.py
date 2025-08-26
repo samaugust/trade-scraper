@@ -5,7 +5,7 @@ Routes trades to appropriate operations (CREATE/UPDATE/CLOSE) based on trade typ
 
 from typing import Dict, Optional
 from config import FOLLOWED_TRADERS, TRADER_SUBACCOUNT_MAP, RISK_PER_TRADE
-from hyperliquid_clients import get_client_for_trader, initialize_clients
+from hyperliquid_clients import get_client_for_trader
 from hyperliquid_executor import (
     place_orders,
     cancel_orders,
@@ -36,12 +36,6 @@ async def handle_trade_update(
     Returns:
         bool: True if trade was processed successfully
     """
-    # Ensure clients are initialized
-    if not hasattr(handle_trade_update, 'initialized'):
-        print("[INFO] Initializing Hyperliquid clients...")
-        await initialize_clients()
-        handle_trade_update.initialized = True
-    
     # Extract trader name from trade data
     trader_name = trade_data.get('trader', '').strip()
     
@@ -64,7 +58,8 @@ async def handle_trade_update(
     side = trade_data.get('side')  # 'long' or 'short'
     entries = trade_data.get('entries', [])
     stop_loss = trade_data.get('stop_loss')
-    take_profit = trade_data.get('take_profit')
+    take_profit = trade_data.get('take_profit')  # Single TP for backward compatibility
+    take_profit_list = trade_data.get('take_profit_list', [])  # List of all TPs
     closed_price = trade_data.get('closed_price')
     # Allow override of risk_per_trade for testing (0 = test mode with $10 position)
     risk_per_trade = trade_data.get('risk_per_trade', RISK_PER_TRADE)
@@ -85,9 +80,11 @@ async def handle_trade_update(
     try:
         # Route to appropriate operation
         if crud_type == "CREATE":
+            # Use TP list if available, otherwise fall back to single TP
+            tp_to_use = take_profit_list if take_profit_list else ([take_profit] if take_profit else [])
             success = await handle_create_trade(
                 client, subaccount_address, symbol, side, entries, 
-                stop_loss, take_profit, trader_name, risk_per_trade
+                stop_loss, tp_to_use, trader_name, risk_per_trade
             )
             
             if success and events_counter:
@@ -95,9 +92,10 @@ async def handle_trade_update(
                 play_notification("Glass")
                 
         elif crud_type == "UPDATE":
+            tp_to_use = take_profit_list if take_profit_list else ([take_profit] if take_profit else [])
             success = await handle_update_trade(
                 client, subaccount_address, symbol, side, entries,
-                stop_loss, take_profit, trader_name, risk_per_trade
+                stop_loss, tp_to_use, trader_name, risk_per_trade
             )
             
             if success and events_counter:
@@ -129,7 +127,7 @@ async def handle_create_trade(
     side: str,
     entries: list,
     stop_loss: float,
-    take_profit: Optional[float],
+    take_profit_list: list,  # Changed to list
     trader_name: str,
     risk_per_trade: float = RISK_PER_TRADE
 ) -> bool:
@@ -155,32 +153,87 @@ async def handle_create_trade(
         print(f"[ERROR] Missing required fields for CREATE: entries={entries}, stop_loss={stop_loss}, side={side}")
         return False
     
-    # Place entry orders
-    orders = await place_orders(
-        client, symbol, side, entries, stop_loss, risk_per_trade
-    )
-    
-    if not orders:
-        print(f"[ERROR] Failed to place entry orders for {symbol}")
-        return False
-    
-    # Calculate total position size from placed orders
-    total_position_size = sum(order.get('amount', 0) for order in orders if order)
-    print(f"[INFO] Total position size: {total_position_size}")
-    
-    # Set stop loss and take profit with the actual position size
-    if (stop_loss or take_profit) and total_position_size > 0:
-        sl_order, tp_order = await set_stop_loss_take_profit(
-            client, symbol, side, stop_loss, take_profit, total_position_size
+    try:
+        # Place entry orders
+        orders = await place_orders(
+            client, symbol, side, entries, stop_loss, risk_per_trade
         )
         
-        if not sl_order and stop_loss:
-            print(f"[WARNING] Failed to set stop loss for {symbol}")
-        if not tp_order and take_profit:
-            print(f"[WARNING] Failed to set take profit for {symbol}")
+        if not orders:
+            print(f"[ERROR] Failed to place entry orders for {symbol}")
+            return False
     
-    print(f"[CREATE] Successfully created trade for {symbol}")
-    return True
+        # Calculate total position size from placed orders
+        total_position_size = 0
+        for order in orders:
+            if order and isinstance(order, dict):
+                # Debug: see what fields are in the order
+                print(f"[DEBUG] Order fields: {order.keys() if hasattr(order, 'keys') else 'not a dict'}")
+                
+                # Try different possible fields for amount
+                amount = order.get('amount') or order.get('filled') or order.get('remaining')
+                if amount is not None:
+                    total_position_size += float(amount)
+                else:
+                    print(f"[WARNING] Order has no amount field: {order}")
+        
+        if total_position_size == 0:
+            print(f"[WARNING] Could not determine position size from orders, using fallback")
+            # Fallback: The place_orders function places the SAME size for EACH entry
+            # So we need to multiply by the number of entries to get total position
+            if entries and stop_loss and len(orders) > 0:
+                avg_entry = sum(entries) / len(entries)
+                num_orders_placed = len(orders)  # Actual number of orders placed
+                
+                # Calculate what size was used per order (same logic as place_orders)
+                if risk_per_trade == 0 or risk_per_trade is None:
+                    # Test mode: $10 position value per order
+                    size_per_order = 10.0 / avg_entry
+                else:
+                    # Production: calculate from risk
+                    stop_distance = abs(avg_entry - stop_loss) / avg_entry
+                    if stop_distance > 0:
+                        position_value = risk_per_trade / stop_distance
+                        size_per_order = position_value / avg_entry
+                        # Ensure minimum
+                        min_size = 10.0 / avg_entry
+                        size_per_order = max(size_per_order, min_size)
+                    else:
+                        size_per_order = 10.0 / avg_entry
+                
+                # Total position is size per order * number of orders
+                total_position_size = size_per_order * num_orders_placed
+                print(f"[DEBUG] Fallback: {num_orders_placed} orders × {size_per_order:.2f} = {total_position_size:.2f} total")
+        
+        print(f"[INFO] Total position size: {total_position_size}")
+        
+        # Set stop loss and take profits with the actual position size
+        if (stop_loss or take_profit_list) and total_position_size > 0:
+            sl_order, tp_orders = await set_stop_loss_take_profit(
+                client, symbol, side, stop_loss, take_profit_list, total_position_size
+            )
+            
+            if not sl_order and stop_loss:
+                print(f"[WARNING] Failed to set stop loss for {symbol}")
+            else:
+                print(f"[SUCCESS] Stop loss order: {sl_order.get('id', 'unknown') if sl_order else 'None'}")
+            
+            if tp_orders:
+                print(f"[SUCCESS] Placed {len(tp_orders)} take profit orders")
+                for i, tp_order in enumerate(tp_orders):
+                    if tp_order:
+                        print(f"  TP {i+1}: {tp_order.get('id', 'unknown')}")
+            elif take_profit_list:
+                print(f"[WARNING] Failed to set take profit orders for {symbol}")
+        
+        print(f"[CREATE] Successfully created trade for {symbol}")
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Exception in handle_create_trade: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 async def handle_update_trade(
     client,
@@ -189,7 +242,7 @@ async def handle_update_trade(
     side: str,
     entries: list,
     stop_loss: float,
-    take_profit: Optional[float],
+    take_profit_list: list,  # Changed to list
     trader_name: str,
     risk_per_trade: float = RISK_PER_TRADE
 ) -> bool:
@@ -223,7 +276,11 @@ async def handle_update_trade(
         )
         
         if orders:
-            total_position_size = sum(order.get('amount', 0) for order in orders if order)
+            for order in orders:
+                if order and isinstance(order, dict):
+                    amount = order.get('amount')
+                    if amount is not None:
+                        total_position_size += float(amount)
             print(f"[INFO] Total position size: {total_position_size}")
         else:
             print(f"[WARNING] Failed to place updated entry orders for {symbol}")
@@ -236,15 +293,18 @@ async def handle_update_trade(
             print(f"[INFO] Using existing position size: {total_position_size}")
     
     # Update stop loss and take profit with actual position size
-    if (stop_loss or take_profit) and side and total_position_size > 0:
-        sl_order, tp_order = await set_stop_loss_take_profit(
-            client, symbol, side, stop_loss, take_profit, total_position_size
+    if (stop_loss or take_profit_list) and side and total_position_size > 0:
+        sl_order, tp_orders = await set_stop_loss_take_profit(
+            client, symbol, side, stop_loss, take_profit_list, total_position_size
         )
         
         if not sl_order and stop_loss:
             print(f"[WARNING] Failed to update stop loss for {symbol}")
-        if not tp_order and take_profit:
-            print(f"[WARNING] Failed to update take profit for {symbol}")
+        
+        if tp_orders:
+            print(f"[SUCCESS] Updated {len(tp_orders)} take profit orders")
+        elif take_profit_list:
+            print(f"[WARNING] Failed to update take profit orders for {symbol}")
     
     print(f"[UPDATE] Successfully updated trade for {symbol}")
     return True

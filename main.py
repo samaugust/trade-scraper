@@ -6,6 +6,7 @@ from state import load_state, save_state
 from active_trades_scraper import scrape_and_parse_active_trades
 from trade_updates_scraper import check_trade_updates
 from config import POLL_INTERVAL_SECONDS
+from hyperliquid_clients import initialize_clients, close_all_clients
 
 # Graceful shutdown flag
 stop_signal = False
@@ -34,6 +35,12 @@ async def main():
 
   os.makedirs("storage", exist_ok=True)
   state = load_state()
+  
+  # Initialize Hyperliquid clients early before any scraping
+  print("[INFO] Initializing Hyperliquid clients...")
+  await initialize_clients()
+  
+  # Initialize browser session
   context, browser, playwright = await initialize_session()
 
   print("[INFO] Starting polling loop...")
@@ -52,7 +59,12 @@ async def main():
 
   finally:
     print("[INFO] Shutting down...")
-    save_state(state)
+    
+    # Close Hyperliquid clients properly
+    print("[INFO] Closing Hyperliquid clients...")
+    await close_all_clients()
+    
+    # Close browser session
     await browser.close()
     await playwright.stop()
 

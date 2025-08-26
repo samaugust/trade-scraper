@@ -258,9 +258,9 @@ async def set_stop_loss_take_profit(
     symbol: str,
     side: str,
     stop_loss: float,
-    take_profit: Optional[float] = None,
+    take_profit_list: list = None,  # Changed to list
     position_size: Optional[float] = None
-) -> Tuple[Optional[Dict], Optional[Dict]]:
+) -> Tuple[Optional[Dict], list]:
     """
     Set stop loss and take profit orders using trigger orders.
     CRITICAL: Use type='limit' with trigger parameters, NOT type='market'.
@@ -270,11 +270,11 @@ async def set_stop_loss_take_profit(
         symbol: Trading symbol
         side: 'long' or 'short'
         stop_loss: Stop loss price
-        take_profit: Optional take profit price
+        take_profit_list: List of take profit prices
         position_size: Optional position size (if not provided, uses minimum)
         
     Returns:
-        Tuple of (stop_loss_order, take_profit_order)
+        Tuple of (stop_loss_order, list_of_take_profit_orders)
     """
     hl_symbol = await convert_symbol(symbol)
     
@@ -284,29 +284,39 @@ async def set_stop_loss_take_profit(
     # Use provided position size or calculate minimum
     if not position_size:
         # Use minimum order value of $10
-        avg_price = (stop_loss + (take_profit or stop_loss)) / 2
+        avg_price = stop_loss  # Use stop loss as reference price
         position_size = 10.0 / avg_price
     
     sl_order = None
-    tp_order = None
+    tp_orders = []  # List to store all TP orders
     
     # Place stop loss
     if stop_loss:
         print(f"[INFO] Setting stop loss at {stop_loss} for {hl_symbol}")
-        print(f"[DEBUG] SL params: side={sl_side}, amount={position_size}, price={stop_loss}")
-        print(f"[DEBUG] SL trigger type: {'tp' if side == 'short' else 'sl'}")
+        print(f"[DEBUG] SL params: side={sl_side}, amount={position_size}, trigger={stop_loss}")
+        
+        # Calculate slippage price for stop market order
+        # For stop loss, use worse price to ensure execution
+        if sl_side == 'buy':
+            # Buying to close short - use higher price for slippage
+            slippage_price = stop_loss * 1.10  # 10% slippage tolerance
+        else:
+            # Selling to close long - use lower price for slippage
+            slippage_price = stop_loss * 0.90  # 10% slippage tolerance
+        
         try:
+            # CCXT will automatically create the trigger structure when stopLossPrice is provided
             sl_order = await with_retry(
                 lambda: client.create_order(
                     symbol=hl_symbol,
-                    type='limit',  # CRITICAL: Use limit, not market
+                    type='market',  # This becomes a Stop Market order when triggered
                     side=sl_side,
                     amount=position_size,
-                    price=stop_loss,  # Limit price when triggered
+                    price=slippage_price,  # Max slippage price for market order
                     params={
-                        'triggerPrice': stop_loss,
-                        'triggerType': 'tp' if side == 'short' else 'sl',  # tp for shorts, sl for longs
-                        'reduceOnly': True
+                        'stopLossPrice': stop_loss,  # CCXT will convert this to trigger with tpsl='sl'
+                        'reduceOnly': True,
+                        'timeInForce': 'Ioc'  # Immediate or cancel for market orders
                     }
                 )
             )
@@ -314,31 +324,51 @@ async def set_stop_loss_take_profit(
         except Exception as e:
             print(f"[ERROR] Failed to set stop loss: {e}")
     
-    # Place take profit
-    if take_profit:
-        print(f"[INFO] Setting take profit at {take_profit} for {hl_symbol}")
-        print(f"[DEBUG] TP params: side={sl_side}, amount={position_size}, price={take_profit}")
-        print(f"[DEBUG] TP trigger type: {'sl' if side == 'short' else 'tp'}")
-        try:
-            tp_order = await with_retry(
-                lambda: client.create_order(
-                    symbol=hl_symbol,
-                    type='limit',  # CRITICAL: Use limit, not market
-                    side=sl_side,  # Same side as stop loss (opposite of position)
-                    amount=position_size,
-                    price=take_profit,  # Limit price when triggered
-                    params={
-                        'triggerPrice': take_profit,
-                        'triggerType': 'sl' if side == 'short' else 'tp',  # sl for shorts, tp for longs
-                        'reduceOnly': True
-                    }
+    # Place take profit orders
+    if take_profit_list and len(take_profit_list) > 0:
+        print(f"[INFO] Setting {len(take_profit_list)} take profit orders for {hl_symbol}")
+        
+        # Calculate size per TP order (divide position equally among TPs)
+        num_tps = len(take_profit_list)
+        size_per_tp = position_size / num_tps
+        print(f"[DEBUG] Position size {position_size:.4f} divided into {num_tps} TPs = {size_per_tp:.4f} each")
+        
+        for i, take_profit in enumerate(take_profit_list):
+            print(f"[INFO] Setting TP {i+1} at {take_profit} for {hl_symbol}")
+            print(f"[DEBUG] TP {i+1} params: side={sl_side}, amount={size_per_tp}, trigger={take_profit}")
+            
+            # Calculate slippage price for take profit market order
+            # For take profit, use conservative price to ensure execution
+            if sl_side == 'buy':
+                # Buying to close short (TP on short) - use higher price for slippage
+                slippage_price = take_profit * 1.05  # 5% slippage tolerance
+            else:
+                # Selling to close long (TP on long) - use lower price for slippage
+                slippage_price = take_profit * 0.95  # 5% slippage tolerance
+            
+            try:
+                # CCXT will automatically create the trigger structure when takeProfitPrice is provided
+                tp_order = await with_retry(
+                    lambda: client.create_order(
+                        symbol=hl_symbol,
+                        type='market',  # This becomes a Stop Take Profit order when triggered
+                        side=sl_side,  # Opposite side of position
+                        amount=size_per_tp,  # Use divided size
+                        price=slippage_price,  # Max slippage price for market order
+                        params={
+                            'takeProfitPrice': take_profit,  # CCXT will convert this to trigger with tpsl='tp'
+                            'reduceOnly': True,
+                            'timeInForce': 'Ioc'  # Immediate or cancel for market orders
+                        }
+                    )
                 )
-            )
-            print(f"[INFO] Take profit order placed successfully: {tp_order.get('id', 'no ID')}")
-        except Exception as e:
-            print(f"[ERROR] Failed to set take profit: {e}")
+                print(f"[INFO] Take profit {i+1} order placed successfully: {tp_order.get('id', 'no ID')}")
+                tp_orders.append(tp_order)
+            except Exception as e:
+                print(f"[ERROR] Failed to set take profit {i+1}: {e}")
+                tp_orders.append(None)
     
-    return sl_order, tp_order
+    return sl_order, tp_orders
 
 async def close_position(client, symbol: str, subaccount_address: str) -> bool:
     """
