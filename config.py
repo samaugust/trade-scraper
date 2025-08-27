@@ -1,7 +1,18 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get trader names from environment variables
+TRADER_1_NAME = os.getenv("TRADER_1_NAME", "Trader1")
+TRADER_2_NAME = os.getenv("TRADER_2_NAME", "Trader2")
+TRADER_3_NAME = os.getenv("TRADER_3_NAME", "Trader3")
+
 FOLLOWED_TRADERS = {
-    "Victorious",
-    "Perdu",
-    "Osbrah"
+    TRADER_1_NAME,
+    TRADER_2_NAME,
+    TRADER_3_NAME
 }
 
 POLL_INTERVAL_SECONDS = 20
@@ -28,8 +39,9 @@ HYPERLIQUID_SYMBOL_OVERRIDES = {
 }
 
 # Trader to subaccount mapping (which subaccount handles which trader)
+# This maps trader names from environment to their subaccount numbers
 TRADER_SUBACCOUNT_MAP = {
-    "Perdu": 1,       # Subaccount 1
-    "Victorious": 2,  # Subaccount 2
-    "Osbrah": 3,      # Subaccount 3
+    TRADER_1_NAME: 1,  # Subaccount 1
+    TRADER_2_NAME: 2,  # Subaccount 2
+    TRADER_3_NAME: 3,  # Subaccount 3
 }

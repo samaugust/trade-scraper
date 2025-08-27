@@ -68,7 +68,7 @@ async def get_client_for_trader(trader_name: str):
     Get the CCXT client for a specific trader based on the mapping in config.
     
     Args:
-        trader_name: Name of the trader (e.g., "Perdu", "Victorious", "Osbrah")
+        trader_name: Name of the trader (from environment variables)
         
     Returns:
         Tuple of (client, subaccount_address) or (None, None) if not found
